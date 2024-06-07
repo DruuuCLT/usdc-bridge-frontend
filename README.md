@@ -1,4 +1,3 @@
-## Vitruveo USDC Bridge
+## USDC Transfer
 
-Bridge from USDC (Polygon) to USDC.pol (Vitruveo)
-
+Bridge from a USDC source to a USDC destination and back

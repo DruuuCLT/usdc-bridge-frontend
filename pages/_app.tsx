@@ -1,27 +1,35 @@
-import { POLYGON_CHAIN, VITRUVEO_CHAIN } from "../const/details";
+import { SOURCE_CHAIN, INTEGRATION_CHAIN } from "../const/details";
 import { ChakraProvider } from "@chakra-ui/react";
-import { ThirdwebProvider } from "@thirdweb-dev/react";
+import { ThirdwebProvider } from "thirdweb/react";
+import { Chain } from "thirdweb/chains";
 import type { AppProps } from "next/app";
 import { useState } from "react";
-import '../styles/globals.css';
+import "../styles/globals.css";
 
 export default function App({ Component, pageProps }: AppProps) {
+    const [activeChain, setActiveChain] = useState<Chain>(SOURCE_CHAIN);
 
-  const [activeChain, setActiveChain] = useState(POLYGON_CHAIN);
+    const handleChainSwitch: any = (chain: Chain) => {
+        console.log("Switch in active chain for provider", chain);
+        setActiveChain(chain);
+    };
 
-  const handleChainSwitch:any = (chain:any) => {
-    setActiveChain(chain);
-  }
+    return (
+        <ThirdwebProvider>
+            <ChakraProvider>
+                <Component
+                    {...pageProps}
+                    chainSwitchHandler={handleChainSwitch}
+                    activeChain={activeChain}
+                />
+            </ChakraProvider>
+        </ThirdwebProvider>
+        // <ThirdwebProvider
+        //     clientId={process.env.NEXT_PUBLIC_CLIENT_ID}
+        //     supportedChains={[INTEGRATION_CHAIN, SOURCE_CHAIN]}
+        //     activeChain={activeChain} // @note Very important for chain-aware hooks
+        // >
 
-  return (
-    <ThirdwebProvider
-      clientId={process.env.NEXT_PUBLIC_CLIENT_ID}
-      activeChain={activeChain}
-      supportedChains={[POLYGON_CHAIN, VITRUVEO_CHAIN]}
-    >
-      <ChakraProvider>
-        <Component {...pageProps} chainSwitchHandler={handleChainSwitch} />
-      </ChakraProvider>
-    </ThirdwebProvider>
-  );
+        // </ThirdwebProvider>
+    );
 }
