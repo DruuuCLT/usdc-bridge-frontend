@@ -1,7 +1,7 @@
 import { defineChain, createThirdwebClient } from "thirdweb";
 import { Chain, polygonAmoy } from "thirdweb/chains";
 
-const AutonityPiccadillySumidaTestnet = defineChain(65100002);
+const integrationChain = defineChain(65100002);
 
 export const twClient = createThirdwebClient({
     clientId: process.env.NEXT_PUBLIC_CLIENT_ID!,
@@ -17,10 +17,10 @@ export const SOURCE_USDC_TOKEN_CONTRACT: string =
     "0xD464CC7367a7A39eb4b1E6643CDa262B0B0CfdA8";
 export const SOURCE_USDC_TOKEN_NAME: string = "mUSDC";
 
-export const INTEGRATION_CHAIN: Chain = AutonityPiccadillySumidaTestnet;
+export const INTEGRATION_CHAIN: Chain = integrationChain;
 // export const INTEGRATION_CHAIN_RPC: string =
-//     AutonityPiccadillySumidaTestnet.rpc[0];
-export const INTEGRATION_CHAIN_ID: number = AutonityPiccadillySumidaTestnet.id;
+//     integrationChain.rpc[0];
+export const INTEGRATION_CHAIN_ID: number = integrationChain.id;
 export const INTEGRATION_CHAIN_NAME: string = "Autonity Piccadilly";
 export const INTEGRATION_USDC_TOKEN_CONTRACT: string =
     "0x3a60C03a86eEAe30501ce1af04a6C04Cf0188700";
