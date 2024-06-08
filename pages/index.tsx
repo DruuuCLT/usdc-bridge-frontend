@@ -50,13 +50,15 @@ export default function (props: Props) {
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const countdown = useRef<number>(countdownAmount);
 
+    console.log("Looping?");
+
     const [usdcBalance, setUsdcBalance] = useState<bigint>(BigInt(0));
     const [usdcPolBalance, setUsdcPolBalance] = useState<bigint>(BigInt(0));
     const [usdcAllowance, setUsdcAllowance] = useState<bigint>(BigInt(0));
     const [usdcPolAllowance, setUsdcPolAllowance] = useState<bigint>(BigInt(0));
 
-    const [destinationContract, setDestinationContract] =
-        useState<ReturnType<typeof getContract>>(messagingIntegration);
+    const destinationContract =
+        useRef<ReturnType<typeof getContract>>(messagingIntegration);
 
     const [usdcValue, setUsdcValue] = useState<number>(0);
 
@@ -79,10 +81,6 @@ export default function (props: Props) {
     const chainData = useActiveWalletChain();
 
     const activeAccount = useActiveAccount();
-
-    useEffect(() => {
-        console.log("NEW DESTINATION TO LISTEN", destinationContract);
-    }, [destinationContract]);
 
     function onSource() {
         return currentFrom === "usdc";
@@ -111,10 +109,13 @@ export default function (props: Props) {
         const { data: sAData } = await usdcSourceAllowanceRefetch();
         const { data: iAData } = await usdcIntegrationAllowanceRefetch();
 
-        if (sBData) setUsdcBalance(sBData);
-        if (iBData) setUsdcPolBalance(iBData);
-        if (sAData) setUsdcAllowance(sAData);
-        if (iAData) setUsdcPolAllowance(iAData);
+        console.log("ALL DATA FROM EVERYWHERE", sBData, iBData, sAData, iAData);
+
+        // @note can be 0
+        if (sBData !== undefined) setUsdcBalance(sBData);
+        if (iBData !== undefined) setUsdcPolBalance(iBData);
+        if (sAData !== undefined) setUsdcAllowance(sAData);
+        if (iAData !== undefined) setUsdcPolAllowance(iAData);
     }
 
     const inputInvalid = () => {
@@ -140,32 +141,27 @@ export default function (props: Props) {
     } = useSendAndConfirmTransaction();
 
     // import { tokensClaimedEvent } from "thirdweb/extensions/erc721";
-    const { data: contractEvents } = useContractEvents({
-        contract: destinationContract,
-        // events: [tokensClaimedEvent({ claimer: account?.address })],
-    });
+    // const { data: contractEvents } = useContractEvents({
+    //     contract: destinationContract.current,
+    //     // events: [tokensClaimedEvent({ claimer: account?.address })],
+    // });
 
-    useEffect(() => {
-        if (!contractEvents) return;
+    // useEffect(() => {
+    //     if (!contractEvents) return;
 
-        console.log(
-            ">>>>>>>>>>>>>>>>>>>>>>>> contract EVENTS !!",
-            contractEvents
-        );
+    //     let isUs = false;
+    //     // @note Index 0 is the OLDEST as far as block number, last item is the most recent !
+    //     for (const ev of contractEvents) {
+    //         // @note ev.address is the contract address
+    //         if ((ev.args as any).to && ev.eventName == "FiatTokenReceived") {
+    //             isUs = true;
+    //             break;
+    //         }
+    //     }
 
-        let isUs = false;
-        // @note Index 0 is the OLDEST as far as block number, last item is the most recent !
-        for (const ev of contractEvents) {
-            // @note ev.address is the contract address
-            if ((ev.args as any).to && ev.eventName == "FiatTokenReceived") {
-                isUs = true;
-                break;
-            }
-        }
-
-        // @note IF this wallet and that contract and that log, then KILL timer early !
-        if (isUs) completed();
-    }, [contractEvents]);
+    //     // @note IF this wallet and that contract and that log, then KILL timer early !
+    //     if (isUs) completed();
+    // }, [contractEvents]);
 
     useEffect(() => {
         if (!isCounting) return;
@@ -189,7 +185,6 @@ export default function (props: Props) {
         }, 1000);
 
         return () => {
-            console.log("Removing interval", timerRef.current);
             if (timerRef.current) clearInterval(timerRef.current);
         };
     }, [isCounting]);
@@ -215,7 +210,7 @@ export default function (props: Props) {
 
             const destCtr = onSource() ? messagingIntegration : messagingSource;
 
-            setDestinationContract(destCtr);
+            destinationContract.current = destCtr;
         } catch (e) {
             toast({
                 status: "error",
@@ -241,14 +236,9 @@ export default function (props: Props) {
             method: "function approve(address spender, uint256 value) returns (bool)",
             params: [pickContractBridgeAddr, parseUnits(usdcValue.toString())],
         });
-        console.log("We are past the approve!", approving);
-        if (approving.data) console.log("data!", approving.data);
-        if (typeof approving.data == "function")
-            console.log("data! FUNC !", await approving.data());
 
         try {
             const result = await sendAndConfirmApprove(approving);
-            console.log("Result of approve sending", result);
             return result;
         } catch (e) {
             console.error(e);
@@ -278,7 +268,6 @@ export default function (props: Props) {
 
         try {
             const result = await sendAndConfirmBridge(bridging);
-            console.log("Result of bridge sending", result);
             return result;
         } catch (e) {
             console.error(e);
@@ -298,8 +287,6 @@ export default function (props: Props) {
             return;
         }
 
-        console.log("We approved and waited for receipt", receiptApprove);
-
         sendBridgeTx();
     }, [receiptApprove]);
 
@@ -308,8 +295,6 @@ export default function (props: Props) {
             console.error("No receipt and no tx hash !");
             return;
         }
-
-        console.log("Final everything log receipt", receiptBridge);
 
         toastRef.current = toast({
             status: "success",
@@ -326,8 +311,6 @@ export default function (props: Props) {
     useEffect(() => {
         if (!transactionReceiptApprove) return;
 
-        console.log("Almost completed approving !", transactionReceiptApprove);
-
         // @note So that we can wait for the receipt!
         setApprovePendingTxHash(transactionReceiptApprove.transactionHash);
     }, [transactionReceiptApprove]);
@@ -335,18 +318,9 @@ export default function (props: Props) {
     useEffect(() => {
         if (!transactionReceiptBridge) return;
 
-        console.log("Almost completed bridging !", transactionReceiptBridge);
-
         // @note So that we can wait for the receipt!
         setBridgePendingTxHash(transactionReceiptBridge.transactionHash);
     }, [transactionReceiptBridge]);
-
-    // useEffect(() => {
-    //     console.log(
-    //         "We have a NEW destination contract to watch",
-    //         destinationContract
-    //     );
-    // }, [destinationContract]);
 
     const executeBridge = async () => {
         if (!chainData?.id || !walletAddr) {
@@ -392,6 +366,8 @@ export default function (props: Props) {
         method: "function balanceOf(address _owner) public view returns (uint256 balance)",
         params: [walletAddr],
     });
+
+    console.log("check me", usdcSourceBalanceAmt);
 
     const {
         data: usdcIntegrationBalanceAmt,
