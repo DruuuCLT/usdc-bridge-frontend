@@ -1,7 +1,6 @@
 import Head from "next/head";
 import Navbar from "../components/NavBar";
 import SwapInput from "../components/SwapInput";
-import Timer from "../components/Timer";
 import { formatUnits, parseUnits } from "../utils/amounts";
 import Connect from "../components/Connect";
 import { prepareContractCall } from "thirdweb";
@@ -18,23 +17,13 @@ import {
     SOURCE_CHAIN,
     INTEGRATION_CHAIN,
     SOURCE_MESSAGING_CONTRACT,
-    // SOURCE_CHAIN_RPC,
-    // SOURCE_CHAIN_ID,
-    // INTEGRATION_CHAIN_RPC,
-    // INTEGRATION_CHAIN_ID,
     INTEGRATION_MESSAGING_CONTRACT,
-    INTEGRATION_USDC_TOKEN_CONTRACT,
-    SOURCE_USDC_TOKEN_CONTRACT,
-    VIA_ABI,
-    USDC_ABI,
     SOURCE_USDC_TOKEN_NAME,
     INTEGRATION_USDC_TOKEN_NAME,
     SOURCE_CHAIN_NAME,
     INTEGRATION_CHAIN_NAME,
     INTEGRATION_BRAND_NAME,
     twClient,
-    SOURCE_CHAIN_ID,
-    INTEGRATION_CHAIN_ID,
 } from "../const/details";
 import {
     useActiveWalletChain,
@@ -42,34 +31,18 @@ import {
     useActiveAccount,
     useReadContract,
     useSendAndConfirmTransaction,
-    useSendTransaction,
     useWaitForReceipt,
-    useConnectedWallets,
     useContractEvents,
 } from "thirdweb/react";
 import { useState, useEffect, useRef, useTransition } from "react";
-import { setConstantValue } from "typescript";
 
 const countdownAmount = 20;
 const feeAmount = 0.25;
-
-// const sourceProvider = new ThirdwebSDK(SOURCE_CHAIN, {
-//     clientId: process.env.NEXT_PUBLIC_CLIENT_ID,
-// });
-// const integrationProvider = new ThirdwebSDK(INTEGRATION_CHAIN, {
-//     clientId: process.env.NEXT_PUBLIC_CLIENT_ID,
-// });
 
 interface Props {
     chainSwitchHandler: Function;
     activeChain: Chain;
 }
-
-// const contract = getContract({
-//     client,
-//     chain,
-//     address: "0x...",
-//   });
 
 export default function (props: Props) {
     const toast = useToast();
@@ -96,8 +69,6 @@ export default function (props: Props) {
         useState<`0x${string}`>("0x");
     const [bridgePendingTxHash, setBridgePendingTxHash] =
         useState<`0x${string}`>("0x");
-
-    const [isPendingTransition, startTransition] = useTransition();
 
     const switchChain = useSwitchActiveWalletChain();
 
@@ -143,9 +114,6 @@ export default function (props: Props) {
     //     events: [tokensClaimedEvent({ claimer: account?.address })],
     // });
 
-    const walletsConnected = useConnectedWallets();
-    console.log("walletsConnected", walletsConnected);
-
     useEffect(() => {
         if (!isCounting) return;
         if (isCounting) countdown.current = countdownAmount;
@@ -187,12 +155,6 @@ export default function (props: Props) {
             clearInterval(interval);
         };
     }, [isCounting]);
-
-    useEffect(() => {
-        if (!walletsConnected.length) return;
-
-        console.log("chain from other source", walletsConnected[0].getChain());
-    }, [walletsConnected]);
 
     const { data: receiptApprove, isLoading: isLoadingReceiptApprove } =
         useWaitForReceipt({
@@ -238,6 +200,9 @@ export default function (props: Props) {
             params: [pickContractBridgeAddr, parseUnits(usdcValue.toString())],
         });
         console.log("We are past the approve!", approving);
+        if (approving.data) console.log("data!", approving.data);
+        if (typeof approving.data == "function")
+            console.log("data! FUNC !", await approving.data());
 
         try {
             const result = await sendAndConfirmApprove(approving);
