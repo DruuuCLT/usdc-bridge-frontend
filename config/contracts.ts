@@ -12,6 +12,7 @@ import {
     SOURCE_USDC_TOKEN_CONTRACT,
     VIA_ABI,
     USDC_ABI,
+    FIAT_TOKEN_ABI,
     SOURCE_USDC_TOKEN_NAME,
     INTEGRATION_USDC_TOKEN_NAME,
     SOURCE_CHAIN_NAME,
@@ -22,6 +23,7 @@ import {
 
 export const usdcAbi = JSON.parse(USDC_ABI);
 export const viaAbi = JSON.parse(VIA_ABI);
+export const fiatTokenAbi = JSON.parse(FIAT_TOKEN_ABI);
 
 export const usdcSource = getContract({
     // the client you have created via `createThirdwebClient()`
@@ -42,7 +44,7 @@ export const usdcIntegration = getContract({
     // the contract's address
     address: INTEGRATION_USDC_TOKEN_CONTRACT,
     // OPTIONAL: the contract's abi
-    abi: usdcAbi,
+    abi: fiatTokenAbi,
 });
 
 export const messagingSource = getContract({

@@ -45,11 +45,13 @@ import {
     useSendTransaction,
     useWaitForReceipt,
     useConnectedWallets,
+    useContractEvents,
 } from "thirdweb/react";
 import { useState, useEffect, useRef, useTransition } from "react";
 import { setConstantValue } from "typescript";
 
 const countdownAmount = 20;
+const feeAmount = 0.25;
 
 // const sourceProvider = new ThirdwebSDK(SOURCE_CHAIN, {
 //     clientId: process.env.NEXT_PUBLIC_CLIENT_ID,
@@ -79,7 +81,7 @@ export default function (props: Props) {
     const [usdcAllowance, setUsdcAllowance] = useState<bigint>(BigInt(0));
     const [usdcPolAllowance, setUsdcPolAllowance] = useState<bigint>(BigInt(0));
 
-    const [usdcValue, setUsdcValue] = useState<string>("0");
+    const [usdcValue, setUsdcValue] = useState<number>(0);
 
     const [walletAddr, setWalletAddr] = useState<string>("");
 
@@ -111,33 +113,38 @@ export default function (props: Props) {
 
     const inputInvalid = () => {
         let tooBig = true;
-        if (onSource()) {
-            tooBig =
-                Number(usdcValue) - 0.25 > Number(formatUnits(usdcBalance));
-        } else {
-            tooBig =
-                Number(usdcValue) - 0.25 > Number(formatUnits(usdcPolBalance));
-        }
-        return Number(usdcValue) <= 0.25 || tooBig;
+
+        if (usdcValue == 0) return true;
+        if (usdcValue <= feeAmount) return false;
+
+        tooBig = onSource()
+            ? usdcValue > Number(formatUnits(usdcBalance))
+            : usdcValue > Number(formatUnits(usdcPolBalance));
+        return tooBig;
     };
 
-    const { mutate: sendTransaction, isPending } = useSendTransaction();
+    const {
+        mutateAsync: sendAndConfirmApprove,
+        data: transactionReceiptApprove,
+    } = useSendAndConfirmTransaction();
 
-    const { mutate: sendAndConfirmApprove, data: transactionReceiptApprove } =
-        useSendAndConfirmTransaction();
+    const {
+        mutateAsync: sendAndConfirmBridge,
+        data: transactionReceiptBridge,
+    } = useSendAndConfirmTransaction();
 
-    const { mutate: sendAndConfirmBridge, data: transactionReceiptBridge } =
-        useSendAndConfirmTransaction();
+    // @todo cancel timer if they reach early !
+    // import { useContractEvents } from "thirdweb/react";
+    // import { tokensClaimedEvent } from "thirdweb/extensions/erc721";
 
-    if (transactionReceiptApprove)
-        console.log("transactionReceipt", transactionReceiptApprove);
-
-    // later
-    // sendAndConfirmTx(tx);
+    // const account = useActiveAccount();
+    // const contractEvents = useContractEvents({
+    //     contract
+    //     events: [tokensClaimedEvent({ claimer: account?.address })],
+    // });
 
     const walletsConnected = useConnectedWallets();
     console.log("walletsConnected", walletsConnected);
-    console.log();
 
     useEffect(() => {
         if (!isCounting) return;
@@ -171,6 +178,7 @@ export default function (props: Props) {
                 });
 
                 setLoading(false);
+                // @todo update the balances AND allowances somehow
             }
         }, 1000);
 
@@ -201,14 +209,55 @@ export default function (props: Props) {
         });
 
     async function setDefaultChain(chain: Chain) {
-        await switchChain(chain);
+        try {
+            // @note returns nothing if successfull, throws if not
+            await switchChain(chain);
+        } catch (e) {
+            toast({
+                status: "error",
+                title: "Error",
+                description:
+                    "User rejected the chain switch. Please try again.",
+            });
+        }
     }
 
-    useEffect(() => {
-        if (!receiptApprove || approvePendingTxHash == "0x") {
-            console.error("No receipt and no tx hash !");
-            return;
+    async function sendApproveTx() {
+        setLoading(true);
+        setStatus("Approving");
+
+        const pickContractBridgeAddr = onSource()
+            ? SOURCE_MESSAGING_CONTRACT
+            : INTEGRATION_MESSAGING_CONTRACT;
+
+        const pickContractApprove = onSource() ? usdcSource : usdcIntegration;
+
+        const approving = prepareContractCall({
+            contract: pickContractApprove,
+            method: "function approve(address spender, uint256 value) returns (bool)",
+            params: [pickContractBridgeAddr, parseUnits(usdcValue.toString())],
+        });
+        console.log("We are past the approve!", approving);
+
+        try {
+            const result = await sendAndConfirmApprove(approving);
+            console.log("Result of approve sending", result);
+            return result;
+        } catch (e) {
+            console.error(e);
+            toast({
+                status: "error",
+                title: "Error",
+                description: "Error while approving USDC. Please try again.",
+            });
+
+            setLoading(false);
         }
+    }
+
+    async function sendBridgeTx() {
+        setLoading(true);
+        setStatus("Sending");
 
         const pickContractBridge = onSource()
             ? messagingSource
@@ -217,10 +266,34 @@ export default function (props: Props) {
         const bridging = prepareContractCall({
             contract: pickContractBridge,
             method: "function bridge(address to, uint256 amount) external returns (uint256 txId)",
-            params: [walletAddr, parseUnits(usdcValue)],
+            params: [walletAddr, parseUnits(usdcValue.toString())],
         });
 
-        sendAndConfirmBridge(bridging);
+        try {
+            const result = await sendAndConfirmBridge(bridging);
+            console.log("Result of bridge sending", result);
+            return result;
+        } catch (e) {
+            console.error(e);
+            toast({
+                status: "error",
+                title: "Error",
+                description: "Error while sending USDC. Please try again.",
+            });
+
+            setLoading(false);
+        }
+    }
+
+    useEffect(() => {
+        if (!receiptApprove || approvePendingTxHash == "0x") {
+            console.error("No receipt and no tx hash !");
+            return;
+        }
+
+        console.log("We approved and waited for receipt", receiptApprove);
+
+        sendBridgeTx();
     }, [receiptApprove]);
 
     useEffect(() => {
@@ -228,6 +301,8 @@ export default function (props: Props) {
             console.error("No receipt and no tx hash !");
             return;
         }
+
+        console.log("Final everything log receipt", receiptBridge);
 
         toastRef.current = toast({
             status: "success",
@@ -237,62 +312,31 @@ export default function (props: Props) {
         setIsCounting(true);
 
         // @todo stop the toast() timer and close the toast
-        // @todo update the balances AND allowances somehow
-
-        alert("Bridged and validated!");
     }, [receiptBridge]);
 
     useEffect(() => {
-        if (walletAddr) setDefaultChain(SOURCE_CHAIN);
-    }, [walletAddr]);
+        if (walletAddr && props.activeChain) setDefaultChain(props.activeChain);
+    }, [walletAddr, props.activeChain]);
 
     useEffect(() => {
         if (!transactionReceiptApprove) return;
 
-        console.log("we are now approving !");
-
-        console.log("approving data", transactionReceiptApprove);
+        console.log("Almost completed approving !", transactionReceiptApprove);
 
         // @note So that we can wait for the receipt!
         setApprovePendingTxHash(transactionReceiptApprove.transactionHash);
     }, [transactionReceiptApprove]);
 
-    //                 toast({
-    //                     status: "error",
-    //                     title: "Error",
-    //                     description:
-    //                         "There was an error approving USDC. Please try again.",
-    //                 });
-
-    //             toastRef.current = toast({
-    //                 status: "success",
-    //                 title: "Bridge in progress",
-    //                 description: `You are sending USDC cross-chain. Funds will arrive in 2-3 mins.`,
-    //             });
-    //             setIsCounting(true);
-
     useEffect(() => {
         if (!transactionReceiptBridge) return;
 
-        console.log("Almost completed bridging !");
+        console.log("Almost completed bridging !", transactionReceiptBridge);
 
         // @note So that we can wait for the receipt!
         setBridgePendingTxHash(transactionReceiptBridge.transactionHash);
-
-        // alert("Amazing!");
     }, [transactionReceiptBridge]);
 
     const executeBridge = async () => {
-        // const bridging = prepareContractCall({
-        //     contract: pickContractBridge,
-        //     method: "function mint(address to)",
-        //     params: ["0x..."],
-        // });
-
-        // sendTransaction(transaction);
-
-        // return false;
-
         if (!chainData?.id || !walletAddr) {
             console.error("No wallet or no chain id !");
             return;
@@ -307,50 +351,25 @@ export default function (props: Props) {
                 await switchChain(pickSwitchTo);
             }
 
-            setStatus("Approving");
-            startTransition(() => {
-                const pickContractApprove = onSource()
-                    ? usdcSource
-                    : usdcIntegration;
-
-                const pickContractBridge = onSource()
-                    ? messagingSource
-                    : messagingIntegration;
-
-                const pickContractBridgeAddr = onSource()
-                    ? SOURCE_MESSAGING_CONTRACT
-                    : INTEGRATION_MESSAGING_CONTRACT;
-
-                console.log("We are before the approve!");
-                console.log(usdcValue);
-                console.log(parseUnits(usdcValue));
-
-                // @note Sync!
-                const approving = prepareContractCall({
-                    contract: pickContractApprove,
-                    method: "function approve(address _spender, uint256 _value) public returns (bool success)",
-                    params: [pickContractBridgeAddr, parseUnits(usdcValue)],
-                });
-                console.log("We are past the approve!", approving);
-
-                const ab = sendAndConfirmApprove(approving);
-                console.log("Send confirm approve", ab);
-            });
+            // @note If not allowed enough, approve, otherwise bridge
+            const allowanceToCheck = onSource()
+                ? usdcAllowance
+                : usdcPolAllowance;
+            if (allowanceToCheck < parseUnits(usdcValue.toString())) {
+                await sendApproveTx();
+            } else await sendBridgeTx();
         } catch (e) {
             console.error(e);
-
             toast({
                 status: "error",
                 title: "Error",
                 description:
-                    "There was an error approving USDC. Please try again.",
+                    "There was an error switching chains. Please try again.",
             });
+
+            setLoading(false);
         }
-
-        setLoading(false);
     };
-
-    //     const { mutate: sendTransaction, isPending } = useSendTransaction();
 
     // function balanceOf(address _owner) public view returns (uint256 balance)
     // function transfer(address _to, uint256 _value) public returns (bool success)
@@ -363,6 +382,7 @@ export default function (props: Props) {
     const {
         data: usdcSourceBalanceAmt,
         isLoading: usdcSourceBalanceIsLoading,
+        refetch: usdcSourceBalanceRefetch, // @note async
     } = useReadContract({
         contract: usdcSource,
         method: "function balanceOf(address _owner) public view returns (uint256 balance)",
@@ -372,6 +392,7 @@ export default function (props: Props) {
     const {
         data: usdcIntegrationBalanceAmt,
         isLoading: usdcIntegrationBalanceIsLoading,
+        refetch: usdcIntegrationBalanceRefetch, // @note async
     } = useReadContract({
         contract: usdcIntegration,
         method: "function balanceOf(address _owner) public view returns (uint256 balance)",
@@ -468,14 +489,8 @@ export default function (props: Props) {
                     <SwapInput
                         current={currentFrom}
                         type="usdc"
-                        max={formatUnits(usdcBalance)}
-                        value={String(
-                            onSource()
-                                ? usdcValue
-                                : Math.max(0, Number(usdcValue) - 0.25).toFixed(
-                                      2
-                                  )
-                        )}
+                        max={Number(formatUnits(usdcBalance))}
+                        value={usdcValue}
                         setValue={setUsdcValue}
                         tokenSymbol={SOURCE_USDC_TOKEN_NAME}
                         tokenBalance={formatUnits(usdcBalance)}
@@ -506,6 +521,7 @@ export default function (props: Props) {
                     <h1>
                         {currentFrom} {formatUnits(usdcAllowance)}{" "}
                         {formatUnits(usdcPolAllowance)}
+                        UsdcValue {usdcValue}
                     </h1>
 
                     <h1>Active chain {props.activeChain?.id}</h1>
@@ -513,14 +529,8 @@ export default function (props: Props) {
                     <SwapInput
                         current={currentFrom}
                         type="usdcpol"
-                        max={formatUnits(usdcPolBalance)}
-                        value={String(
-                            onSource()
-                                ? usdcValue
-                                : Math.max(0, Number(usdcValue) - 0.25).toFixed(
-                                      2
-                                  )
-                        )}
+                        max={Number(formatUnits(usdcPolBalance))}
+                        value={usdcValue}
                         setValue={setUsdcValue}
                         tokenSymbol={INTEGRATION_USDC_TOKEN_NAME}
                         tokenBalance={formatUnits(usdcPolBalance)}
@@ -549,7 +559,7 @@ export default function (props: Props) {
                                 <Spinner me="8px" /> {status}
                             </>
                         ) : (
-                            " Bridge USDC"
+                            "Transfer USDC"
                         )}
                     </Button>
                 ) : (
@@ -566,748 +576,3 @@ export default function (props: Props) {
         </>
     );
 }
-
-// export default function Home(props: Props) {
-//     const toast = useToast();
-//     const toastRef = useRef<ToastId | null>(null);
-//     const address = useAddress();
-
-//     const isMismatched = useNetworkMismatch();
-
-//     import { useActiveWalletChain } from "thirdweb/react";
-
-// const chainId = useActiveWalletChain();
-
-//     const theChain = useChain();
-
-//     console.log("theChain", theChain);
-
-//     const switchChain = useSwitchChain();
-
-//     const currentChainId = useChainId();
-//     console.log(currentChainId);
-
-//     const wal = useWallet();
-//     const walConf = useWalletConfig();
-//     const connStatus = useConnectionStatus();
-//     const walConn = useConnectedWallet();
-//     const signer = useSigner();
-
-//     console.log("wal", wal);
-//     console.log("walConf", walConf);
-//     console.log("connStatus", connStatus);
-//     console.log("walConn", walConn);
-//     console.log("signer", signer);
-
-//     useEffect(() => {
-//         console.log("We changed the ID !", currentChainId);
-//     }, [currentChainId]);
-
-//     const [usdcBalance, setUsdcBalance] = useState<BigNumber>(
-//         BigNumber.from(0)
-//     );
-//     const [usdcPolBalance, setUsdcPolBalance] = useState<BigNumber>(
-//         BigNumber.from(0)
-//     );
-//     const [usdcAllowance, setUsdcAllowance] = useState<BigNumber>(
-//         BigNumber.from(0)
-//     );
-//     const [usdcPolAllowance, setUsdcPolAllowance] = useState<BigNumber>(
-//         BigNumber.from(0)
-//     );
-
-//     const countdown = useRef(countdownAmount);
-
-//     const [status, setStatus] = useState("Bridging");
-
-//     const [usdcValue, setUsdcValue] = useState<string>("0");
-
-//     const [isCounting, setIsCounting] = useState<boolean>(false);
-
-//     const [destinationContract, setDestinationContract] =
-//         useState<SmartContract | null>(null);
-
-//     const sourceMessagingContract = useRef<SmartContract | null>(null);
-//     const integrationMessagingContract = useRef<SmartContract | null>(null);
-//     const tokenSourceContract = useRef<SmartContract | null>(null);
-//     const tokenIntegrationContract = useRef<SmartContract | null>(null);
-
-//     const [currentFrom, setCurrentFrom] = useState<string>("usdc");
-//     const [loading, setLoading] = useState<boolean>(false);
-
-//     const isBridging = useRef<boolean>(false);
-
-//     function onSource() {
-//         return currentFrom === "usdc";
-//     }
-
-//     async function setAllContracts() {
-//         sourceMessagingContract.current = await sourceProvider.getContract(
-//             SOURCE_MESSAGING_CONTRACT,
-//             viaAbi
-//         );
-//         integrationMessagingContract.current =
-//             await integrationProvider.getContract(
-//                 INTEGRATION_MESSAGING_CONTRACT,
-//                 viaAbi
-//             );
-
-//         tokenSourceContract.current = await sourceProvider.getContract(
-//             SOURCE_USDC_TOKEN_CONTRACT
-//         );
-//         tokenIntegrationContract.current =
-//             await integrationProvider.getContract(
-//                 INTEGRATION_USDC_TOKEN_CONTRACT
-//             );
-//     }
-
-//     useEffect(() => {
-//         async function getBalances() {
-//             const sBal = await sourceProvider.getContract(
-//                 SOURCE_USDC_TOKEN_CONTRACT
-//             );
-//             const iBal = await integrationProvider.getContract(
-//                 INTEGRATION_USDC_TOKEN_CONTRACT
-//             );
-
-//             const sB = await sBal.call("balanceOf", [address]);
-//             const iB = await iBal.call("balanceOf", [address]);
-
-//             const sA = await sBal.call("allowance", [
-//                 address,
-//                 SOURCE_MESSAGING_CONTRACT,
-//             ]);
-//             const iA = await iBal.call("allowance", [
-//                 address,
-//                 INTEGRATION_MESSAGING_CONTRACT,
-//             ]);
-
-//             setUsdcBalance(sB);
-//             setUsdcPolBalance(iB);
-//             setUsdcAllowance(sA);
-//             setUsdcPolAllowance(iA);
-//         }
-
-//         console.log("Loaded page", address);
-
-//         if (address) {
-//             getBalances();
-//             setAllContracts();
-//         }
-//     }, [address]);
-
-//     // MV3
-//     // emit Success(_txId, _sourceChainId, _sender, _recipient, 0);
-//     // emit ErrorLog(_txId, string.concat("MessageV3: recipient: ", _reason));
-//     // emit ErrorLog(_txId, "MessageV3: uncallable: fatal failure");
-//     // emit SendProcessed(_txId, _sourceChainId, _sender, _recipient);
-
-//     // Bridge
-//     // emit FiatTokenReceived(to, amount);
-
-//     // const {
-//     //     data,
-//     //     isLoading,
-//     //     error: eventListenerError,
-//     // } = useContractEvents(destinationContract, "FiatTokenReceived", {
-//     //     // queryFilter: {
-//     //     //     filters: {
-//     //     //         to: address, // e.g. Only events where tokenId = 123
-//     //     //         amount: 123, // e.g. Only events where tokenId = 123
-//     //     //     },
-//     //     //     fromBlock: 0, // Events starting from this block
-//     //     //     toBlock: 100, // Events up to this block
-//     //     //     order: "asc", // Order of events ("asc" or "desc")
-//     //     // },
-//     //     subscribe: true, // Subscribe to new events
-//     // });
-
-//     const {
-//         data,
-//         isLoading,
-//         error: eventListenerError,
-//     } = useContractEvents(destinationContract);
-
-//     console.log("Data from useContractEvents", data);
-
-//     useEffect(() => {
-//         if (!isCounting) return;
-//         if (isCounting) countdown.current = countdownAmount;
-
-//         // if (countdown.current <= 0) return;
-
-//         const interval = setInterval(() => {
-//             countdown.current -= 1;
-
-//             if (!toastRef.current) return;
-
-//             toast.update(toastRef.current, {
-//                 status: "success",
-//                 title: "Bridge in progress",
-//                 description: `Waiting for ${countdown.current}`,
-//                 duration: null,
-//             });
-
-//             if (countdown.current === 0) {
-//                 clearInterval(interval);
-//                 // toast.close(toastRef.current);
-
-//                 setIsCounting(false);
-
-//                 toast.update(toastRef.current, {
-//                     status: "success",
-//                     title: "Bridge completed",
-//                     description: `Funds should have reached their destination`,
-//                     duration: 5000,
-//                 });
-
-//                 setLoading(false);
-//             }
-//         }, 1000);
-
-//         return () => {
-//             console.log("Removing interval", interval);
-//             clearInterval(interval);
-//         };
-//     }, [isCounting]);
-
-//     useEffect(() => {
-//         // @note To then listen on this
-//         async function setDest() {
-//             const contractAddr = onSource()
-//                 ? INTEGRATION_MESSAGING_CONTRACT
-//                 : SOURCE_MESSAGING_CONTRACT;
-//             const chainProvider = onSource()
-//                 ? integrationProvider
-//                 : sourceProvider;
-
-//             const dest = await chainProvider.getContract(contractAddr);
-
-//             setDestinationContract(dest);
-//         }
-
-//         setDest();
-//     }, [currentFrom]);
-
-//     const inputInvalid = () => {
-//         let tooBig = true;
-//         if (onSource()) {
-//             tooBig =
-//                 Number(usdcValue) - 0.25 > Number(formatUnits(usdcBalance));
-//         } else {
-//             tooBig =
-//                 Number(usdcValue) - 0.25 > Number(formatUnits(usdcPolBalance));
-//         }
-//         return Number(usdcValue) <= 0.25 || tooBig;
-//     };
-
-//     // // Approve Polygon
-//     // const { contract: usdcContract } = useContract(
-//     //     SOURCE_USDC_TOKEN_CONTRACT,
-//     //     usdcAbi
-//     // );
-//     // const { mutateAsync: approveUsdcSpending } = useContractWrite(
-//     //     usdcContract,
-//     //     "approve"
-//     // );
-
-//     // // Bridge Polygon
-//     // const { contract: viaPolygonContract } = useContract(
-//     //     SOURCE_MESSAGING_CONTRACT,
-//     //     viaAbi
-//     // );
-//     // const { mutateAsync: bridgeUSDCToUSDCPOL } = useContractWrite(
-//     //     viaPolygonContract,
-//     //     "bridge"
-//     // );
-
-//     // // Approve Integration chain
-//     // const { contract: usdcPolContract } = useContract(
-//     //     INTEGRATION_USDC_TOKEN_CONTRACT,
-//     //     usdcAbi
-//     // );
-//     // const { mutateAsync: approveUsdcPolSpending } = useContractWrite(
-//     //     usdcPolContract,
-//     //     "approve"
-//     // );
-
-//     // // const { mutateAsync: approveUsdcPolSpending, isLoading: approve, error } = useContractWrite(
-//     // //     usdcPolContract,
-//     // //     "approve",
-//     // //   );
-
-//     // // Bridge Integration chain
-//     // const { contract: viaVitruveoContract } = useContract(
-//     //     INTEGRATION_MESSAGING_CONTRACT,
-//     //     viaAbi
-//     // );
-//     // const { mutateAsync: bridgeUSDCPOLToUSDC } = useContractWrite(
-//     //     viaVitruveoContract,
-//     //     "bridge"
-//     // );
-
-//     // const wallet = new AbstractWalletImplementation();
-//     // const sdk = await ThirdwebSDK.fromWallet(wallet, "mainnet");
-
-//     const executeBridge = async () => {
-//         setLoading(true);
-//         // try {
-
-//         if (!signer) {
-//             console.log("No signer available!");
-//             return;
-//         }
-
-//         const pickedChain = onSource() ? SOURCE_CHAIN : INTEGRATION_CHAIN;
-
-//         const chainId = await ethers.provider.request({
-//             method: "eth_chainId",
-//         });
-
-//         provider // Or window.ethereum if you don't support EIP-6963.
-//             .on("chainChanged", handleChainChanged);
-
-//         const walletSigner = ThirdwebSDK.fromSigner(signer, pickedChain, {
-//             clientId: process.env.NEXT_PUBLIC_CLIENT_ID,
-//         });
-
-//         // @note To BigNumber
-//         const amount = ethers.utils.parseUnits(usdcValue, 6);
-
-//         console.log("isMismatched?", isMismatched);
-
-//         if (isMismatched) {
-//             setStatus("Switching");
-//             await switchChain(SOURCE_CHAIN_ID);
-//         }
-
-//         // @note If on origin/source chain
-//         const chainAllowance = onSource() ? usdcAllowance : usdcPolAllowance;
-
-//         const messagingContractAddr = onSource()
-//             ? SOURCE_MESSAGING_CONTRACT
-//             : INTEGRATION_MESSAGING_CONTRACT;
-
-//         const messagingContract = onSource()
-//             ? sourceMessagingContract.current
-//             : integrationMessagingContract.current;
-
-//         if (chainAllowance < amount) {
-//             setStatus("Approving");
-//             // const tokenToApprove = onSource()
-//             //     ? tokenSourceContract.current
-//             //     : tokenIntegrationContract.current;
-
-//             const tokenToApprove = onSource()
-//                 ? SOURCE_USDC_TOKEN_CONTRACT
-//                 : INTEGRATION_USDC_TOKEN_CONTRACT;
-
-//             const tokenContractWithSigner = await walletSigner.getContract(
-//                 tokenToApprove,
-//                 usdcAbi
-//             );
-
-//             if (!tokenToApprove) {
-//                 console.log(
-//                     "No token to approve!",
-//                     chainAllowance,
-//                     tokenToApprove,
-//                     onSource()
-//                 );
-//                 setLoading(false);
-//                 return;
-//             }
-
-//             try {
-//                 await tokenContractWithSigner.call("approve", [
-//                     messagingContractAddr,
-//                     amount,
-//                 ]);
-//             } catch (e) {
-//                 const errorReason = (e as TransactionError)?.reason;
-
-//                 console.log("Execution reverted with reason:", e);
-//                 toast({
-//                     status: "error",
-//                     title: "Error",
-//                     description:
-//                         "There was an error approving USDC. Please try again.",
-//                 });
-
-//                 setLoading(false);
-//                 return;
-//             }
-//         }
-
-//         if (!messagingContract) {
-//             setLoading(false);
-//             return;
-//         }
-
-//         try {
-//             await messagingContract.call("bridge", [address, amount]);
-
-//             toastRef.current = toast({
-//                 status: "success",
-//                 title: "Bridge in progress",
-//                 description: `You are sending USDC cross-chain. Funds will arrive in 2-3 mins.`,
-//             });
-//             setIsCounting(true);
-//         } catch (e) {
-//             const errorReason = (e as TransactionError)?.reason;
-
-//             console.log("Execution reverted with reason:", e);
-//             toast({
-//                 status: "error",
-//                 title: "Error",
-//                 description:
-//                     "There was an error sending USDC. Please try again.",
-//             });
-
-//             setLoading(false);
-//             return;
-//         }
-
-//         // if (onSource()) {
-//         //     if (isMismatched) {
-//         //         setStatus("Switching");
-//         //         await switchChain(SOURCE_CHAIN_ID);
-//         //     }
-
-//         //     if (usdcAllowance < amount) {
-//         //         setStatus("Approving");
-//         //         await approveUsdcSpending({
-//         //             args: [SOURCE_MESSAGING_CONTRACT, amount],
-//         //         });
-//         //     }
-
-//         //     setStatus("Bridging");
-//         //     await bridgeUSDCToUSDCPOL({ args: [address, amount] });
-
-//         //     toastRef.current = toast({
-//         //         status: "success",
-//         //         title: "Bridge in progress",
-//         //         description: `You have successfully bridged your ${SOURCE_USDC_TOKEN_NAME} from ${SOURCE_CHAIN_NAME} to ${INTEGRATION_USDC_TOKEN_NAME} on ${INTEGRATION_CHAIN_NAME}. Funds will arrive in 2-3 mins.`,
-//         //     });
-//         // } else {
-//         //     if (isMismatched) {
-//         //         setStatus("Switching");
-//         //         await switchChain(INTEGRATION_CHAIN_ID);
-//         //     }
-
-//         //     if (usdcPolAllowance < amount) {
-//         //         setStatus("Approving");
-//         //         await approveUsdcPolSpending({
-//         //             args: [INTEGRATION_MESSAGING_CONTRACT, amount],
-//         //         });
-//         //     }
-
-//         //     setStatus("Bridging");
-//         //     await bridgeUSDCPOLToUSDC({ args: [address, amount] });
-
-//         //     toast({
-//         //         status: "success",
-//         //         title: "Bridge in progress",
-//         //         description: `You have successfully bridged your ${INTEGRATION_USDC_TOKEN_NAME} from ${INTEGRATION_CHAIN_NAME} to ${SOURCE_USDC_TOKEN_NAME} on ${SOURCE_CHAIN_NAME}. Funds will arrive in 2-3 mins.`,
-//         //     });
-//         // }
-//         //     setIsCounting(true);
-
-//         //     // setLoading(false);
-//         // } catch (err) {
-//         //     console.error(err);
-//         //     toast({
-//         //         status: "error",
-//         //         title: "Error",
-//         //         description: "There was an error. Please try again.",
-//         //     });
-//         //     setLoading(false);
-//         // }
-//     };
-
-//     // const allContract = useContract(
-//     //     onSource()
-//     //         ? SOURCE_USDC_TOKEN_CONTRACT
-//     //         : INTEGRATION_USDC_TOKEN_CONTRACT
-//     // );
-
-//     // useEffect(() => {
-//     //     console.log(">> Contract is fetching!", allContract.isFetching);
-//     // }, [allContract.isFetching]);
-//     // useEffect(() => {
-//     //     console.log(">> Contract is loading!", allContract.isLoading);
-//     // }, [allContract.isLoading]);
-//     // useEffect(() => {
-//     //     console.log(">> Contract is success!", allContract.isSuccess);
-//     // }, [allContract.isSuccess]);
-//     // useEffect(() => {
-//     //     console.log(">> Contract is fetched 100%!", allContract.isFetched);
-//     // }, [allContract.isFetched]);
-//     // useEffect(() => {
-//     //     console.log(">> Contract is re-fetching!", allContract.isRefetching);
-//     // }, [allContract.isRefetching]);
-
-//     // console.log("allContract", allContract);
-//     // // const { mutateAsync, isLoading: isLoadingUSDC, error } = useContractWrite(
-//     // const { mutateAsync: approveToken } = useContractWrite(
-//     //     allContract.contract,
-//     //     "approve"
-//     // );
-
-//     // // mutateAsync({ args: ["My Name"] })
-
-//     // console.log("allContract", allContract);
-//     // console.log("allWrites", allWrites);
-
-//     // allWrites.isIdle
-//     // allWrites.isLoading
-//     // allWrites.isSuccess
-//     // allWrites.mutateAsync
-//     // allWrites.context
-//     // allWrites.data
-//     // allWrites.error
-
-//     const executeBridgeWithHooks = async () => {
-//         setLoading(true);
-//         isBridging.current = true;
-
-//         // @note To BigNumber
-//         const amount = ethers.utils.parseUnits(usdcValue, 6);
-
-//         console.log("isMismatched?", isMismatched);
-
-//         try {
-//             if (isMismatched) {
-//                 setStatus("Switching");
-//                 // @todo edit this based on where they want to go, source is default obv
-//                 await switchChain(SOURCE_CHAIN_ID);
-
-//                 // @note Here hooks will start updating data and preparing the write !
-//             }
-
-//             setStatus("Approving");
-//             await approveToken({ args: [SOURCE_MESSAGING_CONTRACT, amount] });
-//         } catch (e) {
-//             console.error(e);
-
-//             setLoading(false);
-//         }
-
-//         return;
-
-//         // @note If on origin/source chain
-//         const chainAllowance = onSource() ? usdcAllowance : usdcPolAllowance;
-
-//         const messagingContractAddr = onSource()
-//             ? SOURCE_MESSAGING_CONTRACT
-//             : INTEGRATION_MESSAGING_CONTRACT;
-
-//         const messagingContract = onSource()
-//             ? sourceMessagingContract.current
-//             : integrationMessagingContract.current;
-
-//         if (chainAllowance < amount) {
-//             setStatus("Approving");
-//             const tokenToApprove = onSource()
-//                 ? tokenSourceContract.current
-//                 : tokenIntegrationContract.current;
-
-//             if (!tokenToApprove) {
-//                 console.log(
-//                     "No token to approve!",
-//                     chainAllowance,
-//                     tokenToApprove,
-//                     onSource()
-//                 );
-//                 setLoading(false);
-//                 return;
-//             }
-
-//             try {
-//                 await tokenToApprove.call("approve", [
-//                     messagingContractAddr,
-//                     amount,
-//                 ]);
-//             } catch (e) {
-//                 const errorReason = (e as TransactionError)?.reason;
-
-//                 console.log("Execution reverted with reason:", e);
-//                 toast({
-//                     status: "error",
-//                     title: "Error",
-//                     description:
-//                         "There was an error approving USDC. Please try again.",
-//                 });
-
-//                 setLoading(false);
-//                 return;
-//             }
-//         }
-
-//         if (!messagingContract) {
-//             setLoading(false);
-//             return;
-//         }
-
-//         try {
-//             await messagingContract.call("bridge", [address, amount]);
-
-//             toastRef.current = toast({
-//                 status: "success",
-//                 title: "Bridge in progress",
-//                 description: `You are sending USDC cross-chain. Funds will arrive in 2-3 mins.`,
-//             });
-//             setIsCounting(true);
-//         } catch (e) {
-//             const errorReason = (e as TransactionError)?.reason;
-
-//             console.log("Execution reverted with reason:", e);
-//             toast({
-//                 status: "error",
-//                 title: "Error",
-//                 description:
-//                     "There was an error sending USDC. Please try again.",
-//             });
-
-//             setLoading(false);
-//             return;
-//         }
-//     };
-
-//     return (
-//         <>
-//             <Head>
-//                 <title>{`${INTEGRATION_BRAND_NAME} USDC Bridge`}</title>
-//                 <meta
-//                     name="viewport"
-//                     content="width=device-width, initial-scale=1"
-//                 />
-//                 <link rel="icon" href="/favicon.ico" />
-//             </Head>
-
-//             <Navbar />
-
-//             <Flex
-//                 direction="column"
-//                 gap="5"
-//                 mt="10"
-//                 p="5"
-//                 mx="auto"
-//                 maxW={{ base: "sm", md: "xl" }}
-//                 w="full"
-//                 rounded="2xl"
-//                 borderWidth="1px"
-//                 borderColor="gray.600"
-//             >
-//                 <h2
-//                     style={{
-//                         fontSize: "24px",
-//                         fontWeight: 600,
-//                         margin: "auto",
-//                         marginBottom: "20px",
-//                     }}
-//                 >
-//                     {INTEGRATION_BRAND_NAME} USDC Bridge
-//                 </h2>
-//                 <p style={{ marginBottom: 10 }}>
-//                     {`The ${INTEGRATION_BRAND_NAME}
-//                      USDC Bridge is a fast and easy way to bridge
-//                     ${SOURCE_USDC_TOKEN_NAME} ${SOURCE_CHAIN_NAME} to/from ${INTEGRATION_USDC_TOKEN_NAME} on
-//                     ${INTEGRATION_CHAIN_NAME}.`}
-//                 </p>
-//                 <Flex
-//                     direction={onSource() ? "column" : "column-reverse"}
-//                     gap="3"
-//                 >
-//                     <SwapInput
-//                         current={currentFrom}
-//                         type="usdc"
-//                         max={formatUnits(usdcBalance)}
-//                         value={String(
-//                             onSource()
-//                                 ? usdcValue
-//                                 : Math.max(0, Number(usdcValue) - 0.25).toFixed(
-//                                       2
-//                                   )
-//                         )}
-//                         setValue={setUsdcValue}
-//                         tokenSymbol={SOURCE_USDC_TOKEN_NAME}
-//                         tokenBalance={formatUnits(usdcBalance)}
-//                         network="polygon"
-//                     />
-
-//                     <Button
-//                         onClick={async () => {
-//                             // await switchChain(
-//                             //     onSource()
-//                             //         ? INTEGRATION_CHAIN_ID
-//                             //         : SOURCE_CHAIN_ID
-//                             // );
-
-//                             onSource()
-//                                 ? setCurrentFrom("usdcpol")
-//                                 : setCurrentFrom("usdc");
-
-//                             props.chainSwitchHandler(SOURCE_CHAIN);
-//                         }}
-//                         maxW="5"
-//                         mx="auto"
-//                     >
-//                         ↓
-//                     </Button>
-
-//                     <h1>{currentFrom}</h1>
-
-//                     <SwapInput
-//                         current={currentFrom}
-//                         type="usdcpol"
-//                         max={formatUnits(usdcPolBalance)}
-//                         value={String(
-//                             onSource()
-//                                 ? usdcValue
-//                                 : Math.max(0, Number(usdcValue) - 0.25).toFixed(
-//                                       2
-//                                   )
-//                         )}
-//                         setValue={setUsdcValue}
-//                         tokenSymbol={INTEGRATION_USDC_TOKEN_NAME}
-//                         tokenBalance={formatUnits(usdcPolBalance)}
-//                         network={INTEGRATION_BRAND_NAME.toLowerCase()}
-//                     />
-//                 </Flex>
-
-//                 {address ? (
-//                     <Button
-//                         onClick={executeBridge}
-//                         py="7"
-//                         fontSize="2xl"
-//                         colorScheme="purple"
-//                         rounded="xl"
-//                         isDisabled={loading || inputInvalid()}
-//                         style={{
-//                             fontWeight: 400,
-//                             background:
-//                                 "linear-gradient(106.4deg, rgb(255, 104, 192) 11.1%, rgb(104, 84, 249) 81.3%)",
-//                             color: "#ffffff",
-//                         }}
-//                     >
-//                         {/* <img src='/images/usdc-logo.png' style={{width: '30px', marginRight: '10px'}} /> */}
-//                         {loading ? (
-//                             <>
-//                                 <Spinner me="8px" /> {status}
-//                             </>
-//                         ) : (
-//                             " Bridge USDC"
-//                         )}
-//                     </Button>
-//                 ) : (
-//                     <Connect />
-//                 )}
-//                 <p>
-//                     <sup>*</sup> Each bridge transfer takes 2-3 mins and costs
-//                     US$0.25 plus gas.
-//                 </p>
-//             </Flex>
-//         </>
-//     );
-// }

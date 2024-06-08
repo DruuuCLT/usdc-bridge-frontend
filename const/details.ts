@@ -1,13 +1,20 @@
 import { defineChain, createThirdwebClient } from "thirdweb";
 import { Chain, polygonAmoy } from "thirdweb/chains";
 
-const integrationChain = defineChain(65100002);
+const integrationChain = defineChain({
+    id: 65100002,
+    rpc: "https://rpc1.piccadilly.autonity.org",
+});
 
 export const twClient = createThirdwebClient({
     clientId: process.env.NEXT_PUBLIC_CLIENT_ID!,
 });
 
-export { VIA_ABI, USDC_ABI } from "./abis";
+import USDC_A from "./abis/usdc";
+import FIAT_TOKEN_A from "./abis/fiat-token-v-2-2";
+import VIA_A from "./abis/via";
+
+export { USDC_A as USDC_ABI, FIAT_TOKEN_A as FIAT_TOKEN_ABI, VIA_A as VIA_ABI };
 
 export const SOURCE_CHAIN: Chain = polygonAmoy;
 // export const SOURCE_CHAIN_RPC: string = PolygonAmoyTestnet.rpc[0];

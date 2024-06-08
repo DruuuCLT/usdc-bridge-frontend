@@ -24,12 +24,5 @@ export default function App({ Component, pageProps }: AppProps) {
                 />
             </ChakraProvider>
         </ThirdwebProvider>
-        // <ThirdwebProvider
-        //     clientId={process.env.NEXT_PUBLIC_CLIENT_ID}
-        //     supportedChains={[INTEGRATION_CHAIN, SOURCE_CHAIN]}
-        //     activeChain={activeChain} // @note Very important for chain-aware hooks
-        // >
-
-        // </ThirdwebProvider>
     );
 }
