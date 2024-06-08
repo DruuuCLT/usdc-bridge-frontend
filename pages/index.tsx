@@ -47,6 +47,7 @@ interface Props {
 export default function (props: Props) {
     const toast = useToast();
     const toastRef = useRef<ToastId | null>(null);
+    const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const countdown = useRef<number>(countdownAmount);
 
     const [usdcBalance, setUsdcBalance] = useState<bigint>(BigInt(0));
@@ -85,6 +86,29 @@ export default function (props: Props) {
         return currentFrom === "usdc";
     }
 
+    async function completed() {
+        if (!toastRef.current) return;
+        if (timerRef.current) clearInterval(timerRef.current);
+        // toast.close(toastRef.current);
+
+        setIsCounting(false);
+
+        toast.update(toastRef.current, {
+            status: "success",
+            title: "Bridge completed",
+            description: `Funds should have reached their destination`,
+            duration: 5000,
+        });
+
+        setLoading(false);
+
+        // @note update the balances AND allowances somehow. They are all async, we don't need to await them though
+        await usdcSourceBalanceRefetch();
+        await usdcIntegrationBalanceRefetch();
+        await usdcSourceAllowanceRefetch();
+        await usdcIntegrationAllowanceRefetch();
+    }
+
     const inputInvalid = () => {
         let tooBig = true;
 
@@ -107,17 +131,31 @@ export default function (props: Props) {
         data: transactionReceiptBridge,
     } = useSendAndConfirmTransaction();
 
-    // @todo cancel timer if they reach early !
-    // import { useContractEvents } from "thirdweb/react";
     // import { tokensClaimedEvent } from "thirdweb/extensions/erc721";
-
-    // const account = useActiveAccount();
-    const contractEvents = useContractEvents({
-        contract: destination,
+    const { data: contractEvents } = useContractEvents({
+        contract: destinationContract,
         // events: [tokensClaimedEvent({ claimer: account?.address })],
     });
 
-    console.log(">>>>>>>>>>>>>>>>>>>>>>>> contract EVENTS !!", contractEvents);
+    useEffect(() => {
+        if (!contractEvents) return;
+
+        console.log(
+            ">>>>>>>>>>>>>>>>>>>>>>>> contract EVENTS !!",
+            contractEvents
+        );
+
+        let isUs = false;
+        for (const ev of contractEvents) {
+            if ((ev.args as any).to && ev.eventName == "FiatTokenReceived") {
+                isUs = true;
+                break;
+            }
+        }
+
+        // @note IF this wallet and that contract and that log, then KILL timer early !
+        if (isUs) completed();
+    }, [contractEvents]);
 
     useEffect(() => {
         if (!isCounting) return;
@@ -125,7 +163,7 @@ export default function (props: Props) {
 
         // if (countdown.current <= 0) return;
 
-        const interval = setInterval(() => {
+        timerRef.current = setInterval(() => {
             countdown.current -= 1;
 
             if (!toastRef.current) return;
@@ -137,32 +175,12 @@ export default function (props: Props) {
                 duration: null,
             });
 
-            if (countdown.current === 0) {
-                clearInterval(interval);
-                // toast.close(toastRef.current);
-
-                setIsCounting(false);
-
-                toast.update(toastRef.current, {
-                    status: "success",
-                    title: "Bridge completed",
-                    description: `Funds should have reached their destination`,
-                    duration: 5000,
-                });
-
-                setLoading(false);
-
-                // @note update the balances AND allowances somehow. They are all async, we don't need to await them though
-                usdcSourceBalanceRefetch();
-                usdcIntegrationBalanceRefetch();
-                usdcSourceAllowanceRefetch();
-                usdcIntegrationAllowanceRefetch();
-            }
+            if (countdown.current === 0) completed();
         }, 1000);
 
         return () => {
-            console.log("Removing interval", interval);
-            clearInterval(interval);
+            console.log("Removing interval", timerRef.current);
+            if (timerRef.current) clearInterval(timerRef.current);
         };
     }, [isCounting]);
 
@@ -474,6 +492,11 @@ export default function (props: Props) {
                                 ? INTEGRATION_CHAIN
                                 : SOURCE_CHAIN;
 
+                            const destCtr = onSource()
+                                ? messagingIntegration
+                                : messagingSource;
+
+                            setDestinationContract(destCtr);
                             console.log("We want to switch to ", switchToChain);
                             await setDefaultChain(switchToChain);
 
@@ -532,8 +555,6 @@ export default function (props: Props) {
                 ) : (
                     <Connect activeChain={props.activeChain} />
                 )}
-
-                <Connect activeChain={props.activeChain} />
 
                 <p>
                     <sup>*</sup> Each bridge transfer takes 2-3 mins and costs
