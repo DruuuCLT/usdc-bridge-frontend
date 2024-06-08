@@ -33,7 +33,9 @@ import {
     useSendAndConfirmTransaction,
     useWaitForReceipt,
     useContractEvents,
+    useBlockNumber,
 } from "thirdweb/react";
+
 import { useState, useEffect, useRef } from "react";
 
 const countdownAmount = 120;
@@ -50,15 +52,15 @@ export default function (props: Props) {
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
     const countdown = useRef<number>(countdownAmount);
 
-    console.log("Looping?");
-
     const [usdcBalance, setUsdcBalance] = useState<bigint>(BigInt(0));
     const [usdcPolBalance, setUsdcPolBalance] = useState<bigint>(BigInt(0));
     const [usdcAllowance, setUsdcAllowance] = useState<bigint>(BigInt(0));
     const [usdcPolAllowance, setUsdcPolAllowance] = useState<bigint>(BigInt(0));
 
-    const destinationContract =
-        useRef<ReturnType<typeof getContract>>(messagingIntegration);
+    const destinationContract = useRef<string>(messagingIntegration.address);
+
+    // const [destinationContract, setDestinationContract] =
+    //     useState<ReturnType<typeof getContract>>(messagingIntegration);
 
     const [usdcValue, setUsdcValue] = useState<number>(0);
 
@@ -77,6 +79,12 @@ export default function (props: Props) {
         useState<`0x${string}`>("0x");
 
     const switchChain = useSwitchActiveWalletChain();
+
+    // const blockNumberSource = useBlockNumber({
+    //     client: twClient,
+    //     chain: SOURCE_CHAIN,
+    //     watch: false,
+    // });
 
     const chainData = useActiveWalletChain();
 
@@ -109,8 +117,6 @@ export default function (props: Props) {
         const { data: sAData } = await usdcSourceAllowanceRefetch();
         const { data: iAData } = await usdcIntegrationAllowanceRefetch();
 
-        console.log("ALL DATA FROM EVERYWHERE", sBData, iBData, sAData, iAData);
-
         // @note can be 0
         if (sBData !== undefined) setUsdcBalance(sBData);
         if (iBData !== undefined) setUsdcPolBalance(iBData);
@@ -140,28 +146,45 @@ export default function (props: Props) {
         data: transactionReceiptBridge,
     } = useSendAndConfirmTransaction();
 
-    // import { tokensClaimedEvent } from "thirdweb/extensions/erc721";
-    // const { data: contractEvents } = useContractEvents({
-    //     contract: destinationContract.current,
-    //     // events: [tokensClaimedEvent({ claimer: account?.address })],
-    // });
+    const { data: sourceContractEvents } = useContractEvents({
+        contract: messagingSource, // desinationContract.current
+        blockRange: 0,
 
-    // useEffect(() => {
-    //     if (!contractEvents) return;
+        // events: [tokensClaimedEvent({ claimer: account?.address })],
+    });
 
-    //     let isUs = false;
-    //     // @note Index 0 is the OLDEST as far as block number, last item is the most recent !
-    //     for (const ev of contractEvents) {
-    //         // @note ev.address is the contract address
-    //         if ((ev.args as any).to && ev.eventName == "FiatTokenReceived") {
-    //             isUs = true;
-    //             break;
-    //         }
-    //     }
+    // FiatTokenReceived
 
-    //     // @note IF this wallet and that contract and that log, then KILL timer early !
-    //     if (isUs) completed();
-    // }, [contractEvents]);
+    const { data: integrationContractEvents } = useContractEvents({
+        contract: messagingIntegration, // desinationContract.current
+        // events: [tokensClaimedEvent({ claimer: account?.address })],
+        blockRange: 0,
+    });
+
+    useEffect(() => {
+        const contractEvents = onSource()
+            ? integrationContractEvents
+            : sourceContractEvents;
+        if (!contractEvents || !isCounting) return;
+
+        let isUs = false;
+        // @note Index 0 is the OLDEST as far as block number, last item is the most recent !
+        for (const ev of contractEvents) {
+            // @note ev.address is the contract address
+            if (
+                (ev.args as any).to &&
+                ev.eventName == "FiatTokenReceived" &&
+                ev.address.toLowerCase() ==
+                    destinationContract.current.toLowerCase()
+            ) {
+                isUs = true;
+                break;
+            }
+        }
+
+        // @note IF this wallet and that contract and that log, then KILL timer early !
+        if (isUs) completed();
+    }, [sourceContractEvents, integrationContractEvents]);
 
     useEffect(() => {
         if (!isCounting) return;
@@ -205,12 +228,12 @@ export default function (props: Props) {
 
     async function setDefaultChain(chain: Chain) {
         try {
+            const destCtr = onSource() ? messagingIntegration : messagingSource;
             // @note returns nothing if successfull, throws if not
             await switchChain(chain);
 
-            const destCtr = onSource() ? messagingIntegration : messagingSource;
-
-            destinationContract.current = destCtr;
+            destinationContract.current = destCtr.address;
+            // setDestinationContract(destCtr);
         } catch (e) {
             toast({
                 status: "error",
@@ -367,8 +390,6 @@ export default function (props: Props) {
         params: [walletAddr],
     });
 
-    console.log("check me", usdcSourceBalanceAmt);
-
     const {
         data: usdcIntegrationBalanceAmt,
         isLoading: usdcIntegrationBalanceIsLoading,
@@ -489,7 +510,6 @@ export default function (props: Props) {
                                 ? INTEGRATION_CHAIN
                                 : SOURCE_CHAIN;
 
-                            console.log("We want to switch to ", switchToChain);
                             await setDefaultChain(switchToChain);
 
                             props.chainSwitchHandler(switchToChain);
@@ -499,14 +519,6 @@ export default function (props: Props) {
                     >
                         ↓
                     </Button>
-
-                    <h1>
-                        {currentFrom} {formatUnits(usdcAllowance)}{" "}
-                        {formatUnits(usdcPolAllowance)}
-                        UsdcValue {usdcValue}
-                    </h1>
-
-                    <h1>Active chain {props.activeChain?.id}</h1>
 
                     <SwapInput
                         current={currentFrom}
