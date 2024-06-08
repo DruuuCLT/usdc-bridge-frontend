@@ -3,7 +3,7 @@ import Navbar from "../components/NavBar";
 import SwapInput from "../components/SwapInput";
 import { formatUnits, parseUnits } from "../utils/amounts";
 import Connect from "../components/Connect";
-import { prepareContractCall } from "thirdweb";
+import { prepareContractCall, getContract } from "thirdweb";
 import { Chain } from "thirdweb/chains";
 import {
     usdcSource,
@@ -34,9 +34,9 @@ import {
     useWaitForReceipt,
     useContractEvents,
 } from "thirdweb/react";
-import { useState, useEffect, useRef, useTransition } from "react";
+import { useState, useEffect, useRef } from "react";
 
-const countdownAmount = 20;
+const countdownAmount = 120;
 const feeAmount = 0.25;
 
 interface Props {
@@ -53,6 +53,9 @@ export default function (props: Props) {
     const [usdcPolBalance, setUsdcPolBalance] = useState<bigint>(BigInt(0));
     const [usdcAllowance, setUsdcAllowance] = useState<bigint>(BigInt(0));
     const [usdcPolAllowance, setUsdcPolAllowance] = useState<bigint>(BigInt(0));
+
+    const [destinationContract, setDestinationContract] =
+        useState<ReturnType<typeof getContract>>(messagingIntegration);
 
     const [usdcValue, setUsdcValue] = useState<number>(0);
 
@@ -109,10 +112,12 @@ export default function (props: Props) {
     // import { tokensClaimedEvent } from "thirdweb/extensions/erc721";
 
     // const account = useActiveAccount();
-    // const contractEvents = useContractEvents({
-    //     contract
-    //     events: [tokensClaimedEvent({ claimer: account?.address })],
-    // });
+    const contractEvents = useContractEvents({
+        contract: destination,
+        // events: [tokensClaimedEvent({ claimer: account?.address })],
+    });
+
+    console.log(">>>>>>>>>>>>>>>>>>>>>>>> contract EVENTS !!", contractEvents);
 
     useEffect(() => {
         if (!isCounting) return;
@@ -146,7 +151,12 @@ export default function (props: Props) {
                 });
 
                 setLoading(false);
-                // @todo update the balances AND allowances somehow
+
+                // @note update the balances AND allowances somehow. They are all async, we don't need to await them though
+                usdcSourceBalanceRefetch();
+                usdcIntegrationBalanceRefetch();
+                usdcSourceAllowanceRefetch();
+                usdcIntegrationAllowanceRefetch();
             }
         }, 1000);
 
@@ -275,8 +285,6 @@ export default function (props: Props) {
             description: `You are sending USDC cross-chain. Funds will arrive in 2-3 mins.`,
         });
         setIsCounting(true);
-
-        // @todo stop the toast() timer and close the toast
     }, [receiptBridge]);
 
     useEffect(() => {
@@ -336,14 +344,6 @@ export default function (props: Props) {
         }
     };
 
-    // function balanceOf(address _owner) public view returns (uint256 balance)
-    // function transfer(address _to, uint256 _value) public returns (bool success)
-    // function transferFrom(address _from, address _to, uint256 _value) public returns (bool success)
-    // function approve(address _spender, uint256 _value) public returns (bool success)
-    // function allowance(address _owner, address _spender) public view returns (uint256 remaining)
-
-    // function bridge(address to, uint256 amount) external returns (uint256 txId)
-
     const {
         data: usdcSourceBalanceAmt,
         isLoading: usdcSourceBalanceIsLoading,
@@ -367,6 +367,7 @@ export default function (props: Props) {
     const {
         data: usdcSourceAllowanceAmt,
         isLoading: usdcSourceAllowanceIsLoading,
+        refetch: usdcSourceAllowanceRefetch, // @note async
     } = useReadContract({
         contract: usdcSource,
         method: "function allowance(address _owner, address _spender) public view returns (uint256 remaining)",
@@ -376,6 +377,7 @@ export default function (props: Props) {
     const {
         data: usdcIntegrationAllowanceAmt,
         isLoading: usdcIntegrationAllowanceIsLoading,
+        refetch: usdcIntegrationAllowanceRefetch, // @note async
     } = useReadContract({
         contract: usdcIntegration,
         method: "function allowance(address _owner, address _spender) public view returns (uint256 remaining)",
