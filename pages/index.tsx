@@ -77,10 +77,12 @@ export default function (props: Props) {
     const switchChain = useSwitchActiveWalletChain();
 
     const chainData = useActiveWalletChain();
-    console.log("chainData", chainData);
 
     const activeAccount = useActiveAccount();
-    console.log(activeAccount);
+
+    useEffect(() => {
+        console.log("NEW DESTINATION TO LISTEN", destinationContract);
+    }, [destinationContract]);
 
     function onSource() {
         return currentFrom === "usdc";
@@ -102,11 +104,17 @@ export default function (props: Props) {
 
         setLoading(false);
 
-        // @note update the balances AND allowances somehow. They are all async, we don't need to await them though
-        await usdcSourceBalanceRefetch();
-        await usdcIntegrationBalanceRefetch();
-        await usdcSourceAllowanceRefetch();
-        await usdcIntegrationAllowanceRefetch();
+        // @note update the balances AND allowances somehow. They are all async
+        // @note They basically all return the entire thing returned by the hook itself
+        const { data: sBData } = await usdcSourceBalanceRefetch();
+        const { data: iBData } = await usdcIntegrationBalanceRefetch();
+        const { data: sAData } = await usdcSourceAllowanceRefetch();
+        const { data: iAData } = await usdcIntegrationAllowanceRefetch();
+
+        if (sBData) setUsdcBalance(sBData);
+        if (iBData) setUsdcPolBalance(iBData);
+        if (sAData) setUsdcAllowance(sAData);
+        if (iAData) setUsdcPolAllowance(iAData);
     }
 
     const inputInvalid = () => {
@@ -146,7 +154,9 @@ export default function (props: Props) {
         );
 
         let isUs = false;
+        // @note Index 0 is the OLDEST as far as block number, last item is the most recent !
         for (const ev of contractEvents) {
+            // @note ev.address is the contract address
             if ((ev.args as any).to && ev.eventName == "FiatTokenReceived") {
                 isUs = true;
                 break;
@@ -202,6 +212,10 @@ export default function (props: Props) {
         try {
             // @note returns nothing if successfull, throws if not
             await switchChain(chain);
+
+            const destCtr = onSource() ? messagingIntegration : messagingSource;
+
+            setDestinationContract(destCtr);
         } catch (e) {
             toast({
                 status: "error",
@@ -327,6 +341,13 @@ export default function (props: Props) {
         setBridgePendingTxHash(transactionReceiptBridge.transactionHash);
     }, [transactionReceiptBridge]);
 
+    // useEffect(() => {
+    //     console.log(
+    //         "We have a NEW destination contract to watch",
+    //         destinationContract
+    //     );
+    // }, [destinationContract]);
+
     const executeBridge = async () => {
         if (!chainData?.id || !walletAddr) {
             console.error("No wallet or no chain id !");
@@ -339,7 +360,7 @@ export default function (props: Props) {
         try {
             if (chainData.id != pickSwitchTo.id) {
                 setStatus("Switching chains");
-                await switchChain(pickSwitchTo);
+                await setDefaultChain(pickSwitchTo);
             }
 
             // @note If not allowed enough, approve, otherwise bridge
@@ -492,11 +513,6 @@ export default function (props: Props) {
                                 ? INTEGRATION_CHAIN
                                 : SOURCE_CHAIN;
 
-                            const destCtr = onSource()
-                                ? messagingIntegration
-                                : messagingSource;
-
-                            setDestinationContract(destCtr);
                             console.log("We want to switch to ", switchToChain);
                             await setDefaultChain(switchToChain);
 
