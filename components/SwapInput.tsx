@@ -1,5 +1,6 @@
 import { Button, HStack, Input } from "@chakra-ui/react";
 import React, { useState, useEffect } from "react";
+import Image from "next/image";
 
 type Props = {
     type: "usdc" | "usdcpol";
@@ -47,7 +48,7 @@ export default function SwapInput({
     return (
         <HStack w="full" bgColor="gray.700" rounded="2xl" px="5">
             <div style={{ position: "relative", flex: "0 0 25px" }}>
-                <img
+                <Image
                     src={`/images/${network}.png`}
                     alt={`${network}`}
                     style={{
@@ -57,8 +58,9 @@ export default function SwapInput({
                         left: -5,
                     }}
                 />
-                <img
+                <Image
                     src="/images/usdc-logo.png"
+                    alt="USDC Logo"
                     style={{ height: "25px", width: "25px" }}
                 />
             </div>

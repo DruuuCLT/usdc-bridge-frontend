@@ -46,7 +46,7 @@ interface Props {
     activeChain: Chain;
 }
 
-export default function (props: Props) {
+export default function Home(props: Props) {
     const toast = useToast();
     const toastRef = useRef<ToastId | null>(null);
     const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
