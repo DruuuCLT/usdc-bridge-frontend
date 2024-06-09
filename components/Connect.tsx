@@ -1,7 +1,12 @@
 import { ConnectButton } from "thirdweb/react";
 import { Chain as ChainI } from "thirdweb/chains";
 import React from "react";
-import { INTEGRATION_CHAIN, SOURCE_CHAIN, twClient } from "../const/details";
+import {
+    INTEGRATION_CHAIN,
+    SOURCE_CHAIN,
+    twClient,
+    LOGO_URL,
+} from "../const/details";
 import wallets from "../config/wallets";
 
 export default function Connect({ activeChain }: { activeChain: ChainI }) {
@@ -22,12 +27,12 @@ export default function Connect({ activeChain }: { activeChain: ChainI }) {
             connectModal={{
                 size: "wide",
                 title: "Choose one",
-                titleIcon: "https://www.demo.com/icon.png",
+                titleIcon: LOGO_URL,
                 welcomeScreen: {
                     title: "Welcome!",
                     subtitle: "Connect now to get started",
                     img: {
-                        src: "https://www.demo.com/icon.png",
+                        src: LOGO_URL,
                         width: 150,
                         height: 150,
                     },

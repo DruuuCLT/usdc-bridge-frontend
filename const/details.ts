@@ -39,3 +39,6 @@ export const SOURCE_MESSAGING_CONTRACT: string =
     "0x3CB85BcCAe78803e7d098417Dd3a262a611378cf";
 export const INTEGRATION_MESSAGING_CONTRACT: string =
     "0xB0f652534837203b5FBE126c4E7DB128DB9F9736";
+
+export const LOGO_URL: string =
+    "https://usdc-bridge-frontend-autonity.vercel.app/images/logo-white.png";

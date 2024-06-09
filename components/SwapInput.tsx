@@ -51,6 +51,8 @@ export default function SwapInput({
                 <Image
                     src={`/images/${network}.png`}
                     alt={`${network}`}
+                    width={12}
+                    height={12}
                     style={{
                         height: "12px",
                         position: "absolute",
@@ -60,6 +62,8 @@ export default function SwapInput({
                 />
                 <Image
                     src="/images/usdc-logo.png"
+                    width={25}
+                    height={25}
                     alt="USDC Logo"
                     style={{ height: "25px", width: "25px" }}
                 />
