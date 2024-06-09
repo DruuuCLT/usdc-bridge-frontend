@@ -66,7 +66,7 @@ export default function Home(props: Props) {
 
     const [walletAddr, setWalletAddr] = useState<string>("");
 
-    const [status, setStatus] = useState("Bridging");
+    const [status, setStatus] = useState("Sending");
 
     const [loading, setLoading] = useState<boolean>(false);
 
@@ -103,7 +103,7 @@ export default function Home(props: Props) {
 
         toast.update(toastRef.current, {
             status: "success",
-            title: "Bridge completed",
+            title: "Transfer completed",
             description: `Funds should have reached their destination`,
             duration: 5000,
         });
@@ -199,7 +199,7 @@ export default function Home(props: Props) {
 
             toast.update(toastRef.current, {
                 status: "success",
-                title: "Bridge in progress",
+                title: "Transfer in progress",
                 description: `Waiting for ${countdown.current}`,
                 duration: null,
             });
@@ -321,7 +321,7 @@ export default function Home(props: Props) {
 
         toastRef.current = toast({
             status: "success",
-            title: "Bridge in progress",
+            title: "Transfer in progress",
             description: `You are sending USDC cross-chain. Funds will arrive in 2-3 mins.`,
         });
         setIsCounting(true);
@@ -477,11 +477,11 @@ export default function Home(props: Props) {
                         marginBottom: "20px",
                     }}
                 >
-                    {INTEGRATION_BRAND_NAME} USDC Bridge
+                    {INTEGRATION_BRAND_NAME} USDC
                 </h2>
                 <p style={{ marginBottom: 10 }}>
                     {`The ${INTEGRATION_BRAND_NAME}
-                     USDC Bridge is a fast and easy way to bridge
+                     USDC service is a fast and easy way to transfer
                     ${SOURCE_USDC_TOKEN_NAME} ${SOURCE_CHAIN_NAME} to/from ${INTEGRATION_USDC_TOKEN_NAME} on
                     ${INTEGRATION_CHAIN_NAME}.`}
                 </p>
@@ -559,11 +559,6 @@ export default function Home(props: Props) {
                 ) : (
                     <Connect activeChain={props.activeChain} />
                 )}
-
-                <p>
-                    <sup>*</sup> Each bridge transfer takes 2-3 mins and costs
-                    US$0.25 plus gas.
-                </p>
             </Flex>
         </>
     );
