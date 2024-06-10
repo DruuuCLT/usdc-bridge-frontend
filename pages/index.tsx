@@ -306,7 +306,7 @@ export default function Home(props: Props) {
 
     useEffect(() => {
         if (!receiptApprove || approvePendingTxHash == "0x") {
-            console.error("No receipt and no tx hash !");
+            console.log("No receipt and no tx hash !");
             return;
         }
 
@@ -314,8 +314,8 @@ export default function Home(props: Props) {
     }, [receiptApprove]);
 
     useEffect(() => {
-        if (!receiptBridge || approvePendingTxHash == "0x") {
-            console.error("No receipt and no tx hash !");
+        if (!receiptBridge || bridgePendingTxHash == "0x") {
+            console.log("No receipt and no tx hash !");
             return;
         }
 

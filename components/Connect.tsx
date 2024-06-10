@@ -16,7 +16,7 @@ export default function Connect({ activeChain }: { activeChain: ChainI }) {
             wallets={wallets}
             chain={activeChain}
             chains={[SOURCE_CHAIN, INTEGRATION_CHAIN]}
-            autoConnect={false}
+            autoConnect={true}
             theme={"dark"}
             connectButton={{ label: "Connect" }}
             switchButton={{
