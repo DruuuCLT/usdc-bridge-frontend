@@ -41,4 +41,4 @@ export const INTEGRATION_MESSAGING_CONTRACT: string =
     "0xB0f652534837203b5FBE126c4E7DB128DB9F9736";
 
 export const LOGO_URL: string =
-    "https://usdc-bridge-frontend-autonity.vercel.app/images/logo-white.png";
+    "https://usdc-frontend-autonity.vercel.app/images/logo-white.png";
