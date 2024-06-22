@@ -2,7 +2,7 @@ import { defineChain, createThirdwebClient } from "thirdweb";
 import { Chain, polygonAmoy } from "thirdweb/chains";
 
 const integrationChain = defineChain({
-    id: 65100002,
+    id: 65100003,
     rpc: "https://rpc1.piccadilly.autonity.org",
 });
 
@@ -36,7 +36,7 @@ export const INTEGRATION_USDC_TOKEN_NAME: string = "USDC.pol";
 export const INTEGRATION_BRAND_NAME: string = "Autonity";
 
 export const SOURCE_MESSAGING_CONTRACT: string =
-    "0x3CB85BcCAe78803e7d098417Dd3a262a611378cf";
+    "0xECE482610689d3bc8cf360F29cEf237AB8BE64D4";
 export const INTEGRATION_MESSAGING_CONTRACT: string =
     "0xB0f652534837203b5FBE126c4E7DB128DB9F9736";
 
